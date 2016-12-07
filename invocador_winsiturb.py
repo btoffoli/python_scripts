@@ -20,6 +20,7 @@ diretorio_saida = "/tmp/"
 
 
 def carregar_propriedades(file_path):
+    from os import path
     global url_base, prefix_file_name, diretorio_saida, url_email_smtp_server, port_email, login_email,\
         senha_email, destinatarios_email, titulo_email, prefixo_email, sufixo_email, assinatura_email
 
@@ -30,6 +31,10 @@ def carregar_propriedades(file_path):
     url_base = config.get("invocador", "url_base")
     prefix_file_name = config.get("invocador", "prefix_file_name")
     diretorio_saida = config.get("invocador", "diretorio_saida")
+
+    if not (path.exists(diretorio_saida) and path.isdir(diretorio_saida)):
+        raise ValueError("O caminho %s é inesistente, sem permissão ou não é um diretório" % diretorio_saida)
+
 
     #email
     url_email_smtp_server = str(config.get("email", "url_smtp_server"))
@@ -132,7 +137,7 @@ class Noticificacao:
         try:
             #array de str dia e linhas
             dias_linhas_excluidas = ("Dia: %s \t\t\t Linha%s: %s" %(str_date_geo(i.dia), "s" if len(i.linhas_excluidas) > 1 else "", ", ".join(i.linhas_excluidas)) for i in self.__importacoes_com_linhas_excluidas)
-            self.__erro_envio_email = not enviar_email("\n".join(dias_linhas_excluidas))
+            self.__erro_envio_email = enviar_email(self.data_hora_inicio, "\n".join(dias_linhas_excluidas))
 
         except Exception as ex:
             self.__erro_envio_email = str(ex)
@@ -142,7 +147,7 @@ class Noticificacao:
         if self.__precisa_enviar_email:
             self.__enviar_email()
 
-        file = open("/tmp/%s_%s.json" %(prefix_file_name, to_timemillis(self.data_hora_inicio)), "w")
+        file = open("%s/%s_%s.json" %(diretorio_saida, prefix_file_name, to_timemillis(self.data_hora_inicio)), "w")
         json.dump(self.to_map(), file)
         file.close()
 
@@ -160,7 +165,7 @@ class Noticificacao:
 
         if self.__precisa_enviar_email and self.__inicio_envio_email and self.__termino_envio_email:
             envio_email = {
-                "to": ["btoffoli@gmail.com"],
+                "to": destinatarios_email,
                 "horarioConclusaoEnvio": {
                     "iso": self.__termino_envio_email.isoformat(),
                     "timestamp": to_timemillis(self.__termino_envio_email)
@@ -196,13 +201,13 @@ class Importacao:
         self.dia = dia
         self.pontual_winsiturb_sinc = {
             "idCarga": kwargs.get("winsiturbsinc_carga_id"),
-            "dataHoraCriacao": str(kwargs.get("winsiturbsinc_carga_data_hora_criacao")),
+            "dataHoraCriacao": str_date(kwargs.get("winsiturbsinc_carga_data_hora_criacao")),
             "totalViagens": kwargs.get("winsiturbsinc_carga_total_viagens")
         }
         self.winsiturb = {
             "idCarga": kwargs.get("winsiturb_carga_id"),
-            "dataInicio": str(kwargs.get("winsiturb_carga_data_inicio")),
-            "dataFim": str(kwargs.get("winsiturb_carga_data_fim")),
+            "dataInicio": str_date(kwargs.get("winsiturb_carga_data_inicio")),
+            "dataFim": str_date(kwargs.get("winsiturb_carga_data_fim")),
             "tipoDeDia": kwargs.get("winsiturb_carga_tipo_dia")
         }
 
@@ -222,7 +227,7 @@ class Importacao:
                 "duracaoTotalEmSegundos": (pontual_data_envio_resposta - pontual_data_envio_requisicao).total_seconds() if pontual_data_envio_resposta and pontual_data_envio_requisicao else 0
             }
         }
-        self.linhas_excluidas = ["422"] #detalhes_importacao["linhasExcluidas"]
+        self.linhas_excluidas = detalhes_importacao["linhasExcluidas"] if detalhes_importacao else None
         self.sucesso = kwargs.get("sucesso")
         self.detalhe_resultado = kwargs.get("detalhe_resultado")
         self.erro = kwargs.get("error")
@@ -247,55 +252,61 @@ class Importacao:
 
 
 def sincronizar_dia(dia):
+    importacao_corrente = None
     dia_str = dia.strftime("%d-%m-%Y")
-    print("dia: %s\n" %dia_str)
     url_sincronismo = "/".join([url_base, "sincronismoCompleto", dia_str])
     url_remocao = "/".join([url_base, "removerSincronismo", dia_str])
     #tenta garantir a remocao
-    r = requests.get(url_remocao)
+
     # print(r)
     # print(conteudo)
-    r = requests.get(url_sincronismo)
-    conteudo = r.json()
-    if r.status_code == 200:
-        carga_obj = conteudo.get("carga")
-        if carga_obj:
-            winsiturbsinc_carga_id = carga_obj["id"]
-            winsiturbsinc_carga_data_hora_criacao = from_timemillis(carga_obj["dataHoraCriacao"])
-            winsiturb_carga_id = carga_obj["idCarga"]
-            winsiturb_carga_data_inicio = from_timemillis(carga_obj["dataInicio"]).date()
-            winsiturb_carga_data_fim = from_timemillis(carga_obj["dataFim"]).date()
-            winsiturb_carga_tipo_dia = carga_obj["tipoDeDia"]
+    try:
+        r = requests.get(url_remocao)
+        r = requests.get(url_sincronismo)
+        conteudo = r.json()
+        print("importacao: %s - httpCode: %d - conteudo: %s" % (dia_str, r.status_code, conteudo))
+        if r.status_code == 200:
+            carga_obj = conteudo.get("carga")
+            if carga_obj:
+                winsiturbsinc_carga_id = carga_obj["id"]
+                winsiturbsinc_carga_data_hora_criacao = from_timemillis(carga_obj["dataHoraCriacao"])
+                winsiturb_carga_id = carga_obj["idCarga"]
+                winsiturb_carga_data_inicio = from_timemillis(carga_obj["dataInicio"]).date()
+                winsiturb_carga_data_fim = from_timemillis(carga_obj["dataFim"]).date()
+                winsiturb_carga_tipo_dia = carga_obj["tipoDeDia"]
 
 
-        winsiturbsinc_carga_total_viagens = conteudo.get("viagensWinsiturb")
+            winsiturbsinc_carga_total_viagens = conteudo.get("viagensWinsiturb")
 
-        viagem_pontual = conteudo.get("viagensPontual")
+            viagem_pontual = conteudo.get("viagensPontual")
 
-        if viagem_pontual:
-            pontual_data_envio_requisicao = from_timemillis(viagem_pontual["dtInicioSincronismoComPontual"])
-            pontual_data_envio_resposta = from_timemillis(viagem_pontual["dtFimSincronismoComPontual"])
+            if viagem_pontual:
+                pontual_data_envio_requisicao = from_timemillis(viagem_pontual["dtInicioSincronismoComPontual"])
+                pontual_data_envio_resposta = from_timemillis(viagem_pontual["dtFimSincronismoComPontual"])
 
 
-        importacao = Importacao(dia, winsiturbsinc_carga_id=winsiturbsinc_carga_id,
-                                winsiturbsinc_carga_data_hora_criacao=winsiturbsinc_carga_data_hora_criacao,
-                                winsiturbsinc_carga_total_viagens=winsiturbsinc_carga_total_viagens,
-                                winsiturb_carga_id=winsiturb_carga_id,
-                                winsiturb_carga_data_inicio=winsiturb_carga_data_inicio,
-                                winsiturb_carga_data_fim=winsiturb_carga_data_fim,
-                                winsiturb_carga_tipo_dia=winsiturb_carga_tipo_dia,
-                                pontual_resposta=viagem_pontual,
-                                pontual_data_envio_requisicao=pontual_data_envio_requisicao,
-                                pontual_data_envio_resposta=pontual_data_envio_resposta,
-                                sucesso=conteudo["sucesso"],
-                                error=conteudo.get("error"),
-                                detalhe_resultado=conteudo.get("msg")
-                                )
+            importacao_corrente = Importacao(dia, winsiturbsinc_carga_id=winsiturbsinc_carga_id,
+                                    winsiturbsinc_carga_data_hora_criacao=winsiturbsinc_carga_data_hora_criacao,
+                                    winsiturbsinc_carga_total_viagens=winsiturbsinc_carga_total_viagens,
+                                    winsiturb_carga_id=winsiturb_carga_id,
+                                    winsiturb_carga_data_inicio=winsiturb_carga_data_inicio,
+                                    winsiturb_carga_data_fim=winsiturb_carga_data_fim,
+                                    winsiturb_carga_tipo_dia=winsiturb_carga_tipo_dia,
+                                    pontual_resposta=viagem_pontual,
+                                    pontual_data_envio_requisicao=pontual_data_envio_requisicao,
+                                    pontual_data_envio_resposta=pontual_data_envio_resposta,
+                                    sucesso=conteudo["sucesso"],
+                                    error=conteudo.get("error"),
+                                    detalhe_resultado=conteudo.get("msg")
+                                    )
 
-    else:
-        importacao = Importacao(dia, sucesso=False, error=conteudo.get("error"), detalhe_resultado=conteudo.get("msg"))
+        else:
+            importacao_corrente = Importacao(dia, sucesso=False, error=conteudo.get("error"), detalhe_resultado=conteudo.get("msg"))
 
-    return importacao
+    except Exception as conExp:
+        importacao_corrente = Importacao(dia, sucesso=False, error=str(conExp))
+
+    return importacao_corrente
 
 
 
@@ -313,7 +324,7 @@ def importacao():
     max_dias = 13 - hj.weekday()
     importacoes = []
     inicio = datetime.now()
-    for i in range(0, max_dias):
+    for i in range(1, max_dias):
         dia = date.fromordinal(hj.toordinal() + i)
         importacao = sincronizar_dia(dia)
         importacoes.append(importacao)
