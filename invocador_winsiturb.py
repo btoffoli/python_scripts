@@ -3,12 +3,19 @@
 import json
 from configparser import RawConfigParser
 from datetime import date, datetime
+import pytz
 from sys import argv, version_info
+from tzlocal import get_localzone
+
 
 
 import requests
 
-epoch = datetime.utcfromtimestamp(0)
+# tzone = pytz.timezone('America/Sao_Paulo')
+tzone = get_localzone()
+# epoch = datetime.utcfromtimestamp(0)
+#Fazendo as operações de conversão de epoch em 0 mas no timezone de sampa
+epoch = datetime.fromtimestamp(0, tz=pytz.UTC)
 url_base = None
 prefix_file_name = "invocador_winsiturb"
 #
@@ -50,26 +57,27 @@ def carregar_propriedades(file_path):
 
 
 
-def to_timemillis(date):
-    return int((date - epoch).total_seconds() * 1000) if date else None
+def to_timemillis(data):
+    return None if not data else data.timestamp() if verificar_python_maior33() else int((data - epoch).total_seconds() * 1000)
 
-def from_timemillis(timemillis):
+def from_timemillis(timemillis, timezone=pytz.UTC):
     if not type(timemillis) == float:
-        return datetime.fromtimestamp(float(timemillis)/1000)
-    return datetime.fromtimestamp(timemillis/1000)
+        return datetime.utcfromtimestamp(float(timemillis)/1000).replace(tzinfo=timezone)
+    return datetime.utcfromtimestamp(timemillis/1000).replace(tzinfo=timezone)
 
 def str_date(data):
+    # return data.isoformat() if data else None
+    if type(data) is datetime:
+        return data.astimezone(tzone).isoformat() if data else None
     return data.isoformat() if data else None
 
 def str_date_geo(data):
-    if type(data) is datetime:
-        data.strftime("%d-%m-%Y %H:%M:%S")
-    return data.strftime("%d-%m-%Y")
+    return data.strftime("%d-%m-%Y %H:%M:%S") if type(data) is datetime else data.strftime("%d-%m-%Y")
 
 def enviar_email(data_hora_execucao, mensagem):
     import smtplib
     from email.mime.text import MIMEText
-    agora = datetime.now()
+    agora = datetime.now(tz=tzone)
     if agora.hour in range(6, 12):
         saudacao = "Bom dia"
     elif agora.hour in range(12, 18):
@@ -77,7 +85,7 @@ def enviar_email(data_hora_execucao, mensagem):
     else:
         saudacao = "Boa noite"
     prefixo_final = prefixo_email % saudacao
-    titulo_final = titulo_email % data_hora_execucao
+    titulo_final = titulo_email % str_date_geo(data_hora_execucao)
     mensagem_final = "%s.\n\n%s\n\n%s\n%s" %(prefixo_final, mensagem, sufixo_email, assinatura_email)
     msg = MIMEText(mensagem_final)
 
@@ -90,13 +98,16 @@ def enviar_email(data_hora_execucao, mensagem):
     # Send the message via our own SMTP server.
     s = smtplib.SMTP_SSL(url_email_smtp_server, port_email)
     s.login(login_email, senha_email)
-    if version_info.major > 2 and version_info.minor > 3:
+    if verificar_python_maior33():
         resp = s.send_message(msg)
     else:
         resp = s.sendmail(login_email, msg["To"], msg.as_string())
     s.quit()
     return resp
 
+
+def verificar_python_maior33():
+    return version_info.major > 2 and version_info.minor > 3
 
 
 
@@ -133,7 +144,7 @@ class Noticificacao:
 
 
     def __enviar_email(self):
-        self.__inicio_envio_email = datetime.now()
+        self.__inicio_envio_email = datetime.now(tz=tzone)
         try:
             #array de str dia e linhas
             dias_linhas_excluidas = ("Dia: %s \t\t\t Linha%s: %s" %(str_date_geo(i.dia), "s" if len(i.linhas_excluidas) > 1 else "", ", ".join(i.linhas_excluidas)) for i in self.__importacoes_com_linhas_excluidas)
@@ -141,7 +152,7 @@ class Noticificacao:
 
         except Exception as ex:
             self.__erro_envio_email = str(ex)
-        self.__termino_envio_email = datetime.now()
+        self.__termino_envio_email = datetime.now(tz=tzone)
 
     def processar(self):
         if self.__precisa_enviar_email:
@@ -156,7 +167,7 @@ class Noticificacao:
         mapeado = {
             "sucessoExecucao": self.__sucesso,
             "ultimaExecucao": {
-                "iso": self.data_hora_inicio.isoformat(),
+                "iso": str_date(self.data_hora_inicio),
                 "timestamp": to_timemillis(self.data_hora_inicio)
             },
             "importacoes":  [i.to_map() for i in self.importacoes_list]
@@ -321,9 +332,9 @@ def sincronizar_dia(dia):
 
 def importacao():
     hj = date.today()
-    max_dias = 13 - hj.weekday()
+    max_dias = 6 - hj.weekday()
     importacoes = []
-    inicio = datetime.now()
+    inicio = datetime.now(tz=tzone)
     for i in range(1, max_dias):
         dia = date.fromordinal(hj.toordinal() + i)
         importacao = sincronizar_dia(dia)
@@ -336,7 +347,7 @@ def help():
     print("[0: 'help', 1: 'importacao', 2: 'ultimo_sincronismo', 3: 'test_email']\n")
 
 def test_email():
-    enviar_email(datetime.now(), "Grande teste")
+    enviar_email(datetime.now(tz=tzone), "Grande teste")
 
 def ultimo_sincronismo():
     import glob
