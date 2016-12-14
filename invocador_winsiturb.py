@@ -100,13 +100,14 @@ def enviar_email(data_hora_execucao, mensagem):
     msg["From"] = login_email
     msg["To"] = ",".join(destinatarios_email)
 
+
     # Send the message via our own SMTP server.
     s = smtplib.SMTP_SSL(url_email_smtp_server, port_email)
     s.login(login_email, senha_email)
     if verificar_python_maior33():
         resp = s.send_message(msg)
     else:
-        resp = s.sendmail(login_email, msg["To"], msg.as_string())
+        resp = s.sendmail(login_email, destinatarios_email, msg.as_string())
     s.quit()
     return resp
 
