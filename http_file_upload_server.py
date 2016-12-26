@@ -1,11 +1,10 @@
 import os
-from flask import Flask, request, redirect, url_for, make_response, jsonify, abort
+from flask import Flask, request, redirect, url_for
 from werkzeug import secure_filename
-from functools import wraps
 
-
-UPLOAD_FOLDER = '/tmp/UPLOADED/'
-ALLOWED_EXTENSIONS = set(['txt', 'mp4'])
+UPLOAD_FOLDER = '/tmp/UPLOADED'
+ALLOWED_EXTENSIONS = set(['txt'])
+count = 0
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
@@ -59,6 +58,10 @@ def index():
     </form>
     <p>%s</p>
     """ % "<br>".join(os.listdir(app.config['UPLOAD_FOLDER'],))
+
+def teste1():
+    count += 1
+    return jsonify(contador=count)
 
 @app.route("/auth/local", methods=["POST"])
 def login():
