@@ -12,7 +12,7 @@ from email.mime.text import MIMEText
 import requests
 
 
-VERSAO='1.0.0'
+VERSAO='1.1.3'
 
 
 # tzone = pytz.timezone('America/Sao_Paulo')
@@ -33,7 +33,7 @@ diretorio_saida = "/tmp/"
 def carregar_propriedades(file_path):
     from os import path
     global url_base, prefix_file_name, diretorio_saida, url_email_smtp_server, port_email, login_email,\
-        senha_email, destinatarios_email, titulo_email, prefixo_email, sufixo_email, assinatura_email
+        senha_email, destinatarios_email, titulo_email, prefixo_email, prefixo_sucesso_email, sufixo_email, assinatura_email
 
     config = RawConfigParser()
     config.read(file_path)
@@ -55,6 +55,7 @@ def carregar_propriedades(file_path):
     destinatarios_email = eval(config.get("email", "destinatarios"))
     titulo_email = config.get("email", "titulo")
     prefixo_email = config.get("email", "prefixo")
+    prefixo_sucesso_email = config.get("email", "prefixo_sucesso")
     sufixo_email = config.get("email", "sufixo")
     assinatura_email = config.get("email", "assinatura")
 
@@ -86,13 +87,13 @@ def enviar_email(data_hora_execucao, mensagem):
         saudacao = "Boa tarde"
     else:
         saudacao = "Boa noite"
-    prefixo_final = prefixo_email % saudacao
+    prefixo_final = (prefixo_email if mensagem else prefixo_sucesso_email)  % saudacao
     titulo_final = titulo_email % str_date_geo(data_hora_execucao)
     # mensagem_final = "%s.\n\n%s\n\n%s\n%s" %(prefixo_final, mensagem, sufixo_email, assinatura_email)
     mensagem_final = "%s.\n\n%s\n\n%s\n%s" % (prefixo_final, mensagem, sufixo_email, assinatura_email)
     if not verificar_python_maior33():
         mensagem_final = mensagem_final.encode("utf8")
-    msg = MIMEText(mensagem_final)
+    msg = MIMEText(mensagem_final, 'plain', 'utf8')
 
     # me == the sender"s email address
     # you == the recipient"s email address
@@ -118,20 +119,17 @@ def verificar_python_maior33():
 
 
 
-def str_itinerario(itinerario_dict):
-    if verificar_python_maior33():
-        resp = "Codigo-%s, Linha-%s, datas-[%s]" % (
-            itinerario_dict['codigo'],
-            itinerario_dict['linha'],
-            itinerario_dict['datas'])
-    else:
-        resp = ("Codigo-%s, Linha-%s, datas-[%s]" % (
-            itinerario_dict['codigo'],
-            itinerario_dict['linha'],
-            ','.join(i.encode('utf8') for i in itinerario_dict['datas']))).encode(
-            'utf8')
-    return resp
+def str_codigos_nao_encontrados(obtj_nao_enc_dict):
+        return "Codigo-%s, osos-%s" % (
+            obtj_nao_enc_dict['codigo'],
+            obtj_nao_enc_dict['osos'])
 
+
+def str_codigos_nao_encontrados_itinerario(obtj_nao_enc_dict):
+        return "Codigo-%s, Linha-%s, osos-%s" % (
+            obtj_nao_enc_dict['codigo'],
+            obtj_nao_enc_dict['linha'],
+            obtj_nao_enc_dict['osos'])
 
 
 class Noticificacao:
@@ -154,6 +152,10 @@ class Noticificacao:
         return any(len(i.linhas_excluidas) for i in self.importacoes_list)
 
     @property
+    def __existe_linha_excluida_7_dias_atras(self):
+        return any(len(i.linhas_excluidas_7_dias_atras) for i in self.importacoes_list)
+
+    @property
     def __existe_linha_nao_encontrada(self):
         return any(len(i.linhas_nao_encontradas) for i in self.importacoes_list)
 
@@ -174,8 +176,16 @@ class Noticificacao:
         return any(i.conflito_de_carga for i in self.importacoes_list)
 
     @property
+    def __existe_erro_winsiturb(self):
+        return any(i.erro_winsiturb for i in self.importacoes_list)
+
+    @property
     def __importacoes_com_linhas_excluidas(self):
         return filter(lambda i: i.linhas_excluidas, self.importacoes_list)
+
+    @property
+    def __importacoes_com_linhas_excluidas_7_dias_atras(self):
+        return filter(lambda i: i.linhas_excluidas_7_dias_atras, self.importacoes_list)
 
     @property
     def __importacoes_com_linhas_nao_encontradas(self):
@@ -198,13 +208,19 @@ class Noticificacao:
         return filter(lambda i: i.conflito_de_carga, self.importacoes_list)
 
     @property
+    def __importacoes_com_erro_winsiturb(self):
+        return filter(lambda i: i.erro_winsiturb, self.importacoes_list)
+
+    @property
     def __precisa_enviar_email(self):
-        return self.__falhou or \
-               self.__existe_linha_excluida \
-                or self.__existe_linha_nao_encontrada \
-                or self.__existe_itinerario_nao_encontrado \
-                or self.__existe_empresa_nao_encontrada \
-                or self.__existe_tipo_veiculo_nao_encontrado
+        return True
+        # return self.__falhou or \
+        #        self.__existe_linha_excluida \
+        #         or self.__existe_linha_excluida_7_dias_atras \
+        #         or self.__existe_linha_nao_encontrada \
+        #         or self.__existe_itinerario_nao_encontrado \
+        #         or self.__existe_empresa_nao_encontrada \
+        #         or self.__existe_tipo_veiculo_nao_encontrado
 
 
     def __enviar_email(self):
@@ -213,30 +229,39 @@ class Noticificacao:
             #array de str dia e linhas
             mensagem = ""
             if self.__existe_conflito_de_carga:
-                dias_carga_conflitantes = ("Dia: %s \t\t\t %s" % (str_date_geo(i.dia), i.erro_customizado) for i in
+                dias_carga_conflitantes = ("Dia: %s\t\t\t %s" % (str_date_geo(i.dia), i.erro_customizado) for i in
                                          self.__importacoes_com_conflito_de_carga)
                 mensagem = str("%s\n%s\n\n" % ("Problema de carga:", "\n".join(dias_carga_conflitantes)))
 
+            if self.__existe_erro_winsiturb:
+                dias_erro_winsiturb = (str_date_geo(i.dia) for i in self.__importacoes_com_erro_winsiturb)
+                mensagem = str("%s:\t\t%s\n\n" % (u"Falha no servico winsiturb:", "\t".join(dias_erro_winsiturb)))
 
             if self.__existe_linha_excluida:
-                dias_linhas_excluidas = ("Dia: %s \t\t\t Linha%s: %s" %(str_date_geo(i.dia), "s" if len(i.linhas_excluidas) > 1 else "", ", ".join(i.linhas_excluidas)) for i in self.__importacoes_com_linhas_excluidas)
+                dias_linhas_excluidas = ("Dia: %s \t (carga - %s):\t %s" %(str_date_geo(i.dia), i.winsiturb_carga_id, ", ".join(i.linhas_excluidas)) for i in self.__importacoes_com_linhas_excluidas)
                 mensagem = "%s%s\n%s\n\n" % (mensagem, "Linhas excluidas:", "\n".join(dias_linhas_excluidas))
 
+            if self.__existe_linha_excluida_7_dias_atras:
+                dias_linhas_excluidas_7_dias_atras = ("Dia: %s \t (carga - %s):\t %s" % (
+                str_date_geo(i.dia), i.winsiturb_carga_id, ", ".join(i.linhas_excluidas_7_dias_atras)) for i in
+                                         self.__importacoes_com_linhas_excluidas_7_dias_atras)
+                mensagem = "%s%s\n%s\n\n" % (mensagem, u"Linhas excluidas de uma semana atrás:", "\n".join(dias_linhas_excluidas_7_dias_atras))
+
             if self.__existe_linha_nao_encontrada:
-                dias_linhas_nao_encontradas = ("Dia: %s \t\t\t Linha%s: %s" %(str_date_geo(i.dia), "s" if len(i.linhas_nao_encontradas) > 1 else "", ", ".join(i.linhas_nao_encontradas)) for i in self.__importacoes_com_linhas_nao_encontradas)
-                mensagem = "%s%s\n%s\n\n" % (mensagem, u"Linhas não encontradas:", "\n".join(dias_linhas_nao_encontradas))
+                dias_linhas_nao_encontradas = ("Dia: %s (carga - %s):\n%s" %(str_date_geo(i.dia), i.winsiturb_carga_id, "\n".join(i.linhas_nao_encontradas)) for i in self.__importacoes_com_linhas_nao_encontradas)
+                mensagem = "%s%s\n%s\n\n" % (mensagem, u"Linhas não encontradas:", "\n\n".join(dias_linhas_nao_encontradas))
 
             if self.__existe_itinerario_nao_encontrado:
-                dias_itinerarios_nao_encontrados = ("Dia: %s \t\t\t Itinerario%s: %s" % (str_date_geo(i.dia), "s" if len(i.itinerarios_nao_encontrados) > 1 else "", ";\t ".join(i.itinerarios_nao_encontrados)) for i in self.__importacoes_com_itinerarios_nao_encontrados)
-                mensagem = "%s%s\n%s\n\n" % (mensagem, u"Itinerários não encontrados:", "\n".join(dias_itinerarios_nao_encontrados))
+                dias_itinerarios_nao_encontrados = ("Dia: %s (carga - %s):\n%s" % (str_date_geo(i.dia), i.winsiturb_carga_id, "\n".join(i.itinerarios_nao_encontrados)) for i in self.__importacoes_com_itinerarios_nao_encontrados)
+                mensagem = "%s%s\n%s\n\n" % (mensagem, u"Itinerários não encontrados:", "\n\n".join(dias_itinerarios_nao_encontrados))
 
             if self.__existe_empresa_nao_encontrada:
-                dias_empresas_nao_encontradas = ("Dia: %s \t\t\t Empresa%s: %s" %(str_date_geo(i.dia), "s" if len(i.empresas_nao_encontradas) > 1 else "", ", ".join(i.empresas_nao_encontradas)) for i in self.__importacoes_com_empresas_nao_encontradas)
-                mensagem = "%s%s\n%s\n\n" % (mensagem, u"Empresas não encontradas:", "\n".join(dias_empresas_nao_encontradas))
+                dias_empresas_nao_encontradas = ("Dia: %s (carga - %s):\n%s" %(str_date_geo(i.dia), i.winsiturb_carga_id, "\n".join(i.empresas_nao_encontradas)) for i in self.__importacoes_com_empresas_nao_encontradas)
+                mensagem = "%s%s\n%s\n\n" % (mensagem, u"Empresas não encontradas:", "\n\n".join(dias_empresas_nao_encontradas))
 
             if self.__existe_tipo_veiculo_nao_encontrado:
-                dias_tipos_veiculo_nao_encontrados = ("Dia: %s \t\t\t Tipo%s: %s" %(str_date_geo(i.dia), "s" if len(i.tipos_veiculo_nao_encontrados) > 1 else "", ", ".join(i.tipos_veiculo_nao_encontrados)) for i in self.__importacoes_com_tipos_veiculos_nao_encontrados)
-                mensagem = "%s%s\n%s\n\n" % (mensagem, u"Tipos de veículo não encontrados:", "\n".join(dias_tipos_veiculo_nao_encontrados))
+                dias_tipos_veiculo_nao_encontrados = ("Dia: %s (carga - %s):\n%s" %(str_date_geo(i.dia), i.winsiturb_carga_id, "\n".join(i.tipos_veiculo_nao_encontrados)) for i in self.__importacoes_com_tipos_veiculos_nao_encontrados)
+                mensagem = "%s%s\n%s\n\n" % (mensagem, u"Tipos de veículo não encontrados:", "\n\n".join(dias_tipos_veiculo_nao_encontrados))
 
 
             self.__erro_envio_email = enviar_email(self.data_hora_inicio, mensagem)
@@ -250,7 +275,7 @@ class Noticificacao:
             self.__enviar_email()
 
         file = open("%s/%s_%s.json" %(diretorio_saida, prefix_file_name, to_timemillis(self.data_hora_inicio)), "w")
-        json.dump(self.to_map(), file)
+        json.dump(self.to_map(), file, ensure_ascii=False)
         file.close()
 
 
@@ -329,12 +354,14 @@ class Importacao:
                 "duracaoTotalEmSegundos": (pontual_data_envio_resposta - pontual_data_envio_requisicao).total_seconds() if pontual_data_envio_resposta and pontual_data_envio_requisicao else 0
             }
         }
+        self.winsiturb_carga_id = kwargs.get('winsiturb_carga_id')
         #Problemas de viagem que fazem alertar a ceturb sobre possiveis problemas na importacao
         self.linhas_excluidas = detalhes_importacao["linhasExcluidas"] if detalhes_importacao else []
-        self.linhas_nao_encontradas = detalhes_importacao["linhasNaoEncontradas"] if detalhes_importacao else []
-        self.itinerarios_nao_encontrados = map(str_itinerario, detalhes_importacao["itinerariosNaoEncontrados"]) if detalhes_importacao else []
-        self.empresas_nao_encontradas = detalhes_importacao["empresasNaoEncontradas"] if detalhes_importacao else []
-        self.tipos_veiculo_nao_encontrados = detalhes_importacao["tiposVeiculoNaoEncontrados"] if detalhes_importacao else []
+        self.linhas_excluidas_7_dias_atras = detalhes_importacao["linhasExcluidas7DiasAtras"] if detalhes_importacao else []
+        self.linhas_nao_encontradas = map(str_codigos_nao_encontrados, detalhes_importacao["linhasNaoEncontradas"]) if detalhes_importacao else []
+        self.itinerarios_nao_encontrados = map(str_codigos_nao_encontrados_itinerario, detalhes_importacao["itinerariosNaoEncontrados"]) if detalhes_importacao else []
+        self.empresas_nao_encontradas = map(str_codigos_nao_encontrados, detalhes_importacao["empresasNaoEncontradas"]) if detalhes_importacao else []
+        self.tipos_veiculo_nao_encontrados = map(str_codigos_nao_encontrados, detalhes_importacao["tiposVeiculoNaoEncontrados"]) if detalhes_importacao else []
 
         self.sucesso = kwargs.get("sucesso")
         self.detalhe_resultado = kwargs.get("detalhe_resultado")
@@ -354,7 +381,11 @@ class Importacao:
             self.conflito_de_carga = True
             self.erro_customizado = "Nenhuma carga encontrada."
 
-
+        if self.erro and 'ERRO_WINSITURB' in self.erro:
+            self.erro_winsiturb = True
+            self.httpErroCode = self.argumentos_do_erro[0] if self.argumentos_do_erro else None
+        else:
+            self.erro_winsiturb = False
 
     def to_map(self):
         mapeado = {
@@ -367,9 +398,14 @@ class Importacao:
         if not self.sucesso:
             mapeado["sucesso"] = False
             mapeado["detalhe_resultado"] = self.detalhe_resultado
-            mapeado["erro"] = self.erro
+            mapeado["erro"] = self.erro if type(self.erro) == str else self.erro.encode('utf8')
+
             if self.cargas_conflitantes:
                 mapeado["cargas_conflitantes"] = self.cargas_conflitantes
+
+            if self.erro_winsiturb and self.httpErroCode:
+                mapeado["erro_winsiturb"] = "HttpStatus = %s" % self.httpErroCode
+
         return mapeado
 
     def to_json(self):
@@ -451,14 +487,18 @@ def sincronizar_dia(dia):
 # Lembrando que em python a semana começa na segunda-feira com o valor 0
 
 def importacao():
-    hj = date.today()
-    max_dias = 13 - hj.weekday()
     importacoes = []
     inicio = datetime.now(tz=tzone)
+    hj = date.today()
+    max_dias = 13 - hj.weekday()
     for i in range(1, max_dias):
         dia = date.fromordinal(hj.toordinal() + i)
         importacao = sincronizar_dia(dia)
         importacoes.append(importacao)
+
+    # dia = date(day=23, month=1, year=2017)
+    # importacao = sincronizar_dia(dia)
+    # importacoes.append(importacao)
 
     notificacao = Noticificacao(inicio, importacoes)
     notificacao.processar()
@@ -469,7 +509,7 @@ def help():
     print("Exemplo: python invocador_winsiturb.py arquivo-de-configuracao numero-do-modo-descrito-acima")
 
 def test_email():
-    enviar_email(datetime.now(tz=tzone), "Grande teste")
+    enviar_email(datetime.now(tz=tzone), "")
 
 def ultimo_sincronismo():
     import glob
