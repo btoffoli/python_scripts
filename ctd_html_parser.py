@@ -5,10 +5,11 @@ import pytz
 from datetime import datetime, timedelta
 
 import pandas as pd
-from matplotlib import pyplot as plt, style, dates, ticker
+from matplotlib import pyplot as plt, style, dates, ticker, use
 import numpy as np
 
 style.use('ggplot')
+#use('Agg')
 separator = " "
 dt_html_mask = "%d/%m/%Y %H:%M:%S"
 dt_plot_mask = "%d/%m/%Y"
@@ -23,6 +24,8 @@ def build_html(list):
 	page += '</head>\n'
 
 	page += '<body>\n'
+	page += '<div id="container">\n'
+	page += '<div class="div_data">\n'
 	page += '<table>\n'
 	page += '<tr>\n'
 	page += '<th colspan="5">\n'
@@ -51,6 +54,10 @@ def build_html(list):
 		page += "</tr>\n"
 
 	page += "</table>\n"
+	page += "</div>\n"
+	page += '<div class="div_data">\n'
+	page += '<img src="ctd1.png"/>\n'	
+	page += "</div>\n"
 	page += "</body>\n"
 	page += "</html>\n"
 
@@ -90,7 +97,7 @@ def convert_utc_date_to_sao_paulo(dt):
 
 def build_plot(data_array, file_path):
 	# print(data_array)
-	num_days  		=	 20
+	num_days  		=	 6
 	#obtem as leituras dos ultimos num_dias
 	last_date 		= data_array[0].ctd_time
 	last_day  		= last_date.day
@@ -108,7 +115,8 @@ def build_plot(data_array, file_path):
 		if last_date.date() - current_date.date() < timedelta(days=num_days):
 			date_array.insert(0, data.ctd_time)
 			pressure_array.insert(0, data.pressure)
-			tide_array.insert(0, data.tide)			
+			tide_array.insert(0, data.tide)
+			# tide_array.insert(0, (data.ctd_time, data.tide))
 			voltage_array.insert(0, data.voltage)
 		else:
 			break
@@ -116,6 +124,7 @@ def build_plot(data_array, file_path):
 	# values = np.array(tide_array, np.float32)	
 	# print('***** %s' % str(tide_array))
 	values = np.array(tide_array, np.float32)
+	# values = tide_array
 	index = date_array
 	# index = pd.date_range(current_date.date(), last_date.date(), freq='%dD' %(2))
 	# print(index)
@@ -127,7 +136,8 @@ def build_plot(data_array, file_path):
 		return datep.strftime(dt_plot_mask)
 	# formatter = ticker.FuncFormatter(dt_formatter)
 	# formatter = ticker.FuncFormatter(lambda dt, pos: dt.strftime(dt_plot_mask))
-	plt_obj = df.plot(lw=2,colormap='jet',marker='.',markersize=10,title='Altura de maré')
+	#plt_obj = df.plot(lw=2,colormap='jet',marker='.',markersize=10,title='Altura de maré')
+	plt_obj = df.plot(title='Altura de maré')
 	plt_obj.set_xlabel('Dia')
 	plt_obj.set_ylabel('Maré (m)')
 	# plt_obj.yaxis.set_major_formatter(formatter)
@@ -178,7 +188,7 @@ def generate_html(inputfilepath, outputfilepath, outputplotfile='/tmp/ctd1.png')
 
 		ctd_file.close()
 
-		page = build_html(dat)
+		page = build_html(dat[:10000])
 
 		outputfile = open(outputfilepath, mode="w")
 		outputfile.write(page)
