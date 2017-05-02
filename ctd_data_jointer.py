@@ -243,7 +243,7 @@ if __name__ == "__main__":
         fluors_ctds = build_output(fluors, ctds)
         ctd_prefix_file_name = ctd_file_path.split('/')[-1].split('.')[0]
         name_file = "%s/%s_%s.csv" % (output_dir_path, prefix_file, ctd_prefix_file_name)
-        print("Gerando arquivo %s: " %name_file)
+        print("Generating arquivo %s: " %name_file)
         f = open(name_file, 'w')
         f.write("%s\n" % cell_separator.join(['Date', 'Prof(m)', 'Sal(PSU)', 'Temp(ºC)','Cond(mS/cm)', 'Dens(kg/m³)', 'Chl_a(mg/m³)', 'Turb(NTU)']))
         for fluor, ctd in ((fluor, ctd) for fluor, ctd in fluors_ctds if ctd):
@@ -254,8 +254,8 @@ if __name__ == "__main__":
             temp = ctd.temperature
             cond = ctd.conductivity
             dens = ctd.density
-            chl_a = chlorophyll_const * (fluor.chlorophyll - 50)
-            turb = turbidity_const * (fluor.turbidity - 51) 
+            chl_a = chlorophyll_const * (fluor.chlorophyll - 49)
+            turb = turbidity_const * (fluor.turbidity - 50) 
             data_tuple = (fluor.date_time, depth, sal, temp, cond, dens, chl_a, turb)
             data_str = cell_separator.join(map(str, data_tuple))
             f.write("%s\n" % data_str)
