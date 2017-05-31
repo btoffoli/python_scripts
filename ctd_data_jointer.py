@@ -4,7 +4,7 @@ from sys import argv
 from datetime import datetime, timedelta
 from glob import glob
 import re
-from sys import argv
+from sys import argv, platform
 
 directory_separator = '/'
 cell_separator = ';'
@@ -232,7 +232,11 @@ if __name__ == "__main__":
     fluors = load_fluor(fluorimetro_file_path)
     print('OK')
     # prefix_file = fluors[0].date_time.strftime('%d_%m_%y')
-    prefix_file = ctd_dir_path.split('/')[-2]
+
+    if platform == "linux" or platform == "linux2":
+        prefix_file = ctd_dir_path.split('/')[-2]    
+    elif platform == "win32":
+        prefix_file = ctd_dir_path.split('\\')[-2]
 
 
     g = glob(ctd_dir_path)
@@ -241,7 +245,7 @@ if __name__ == "__main__":
         print('Loading CTD Data from %s' % ctd_file_path, end='')
         ctds = load_ctd(ctd_file_path)        
         fluors_ctds = build_output(fluors, ctds)
-        ctd_prefix_file_name = ctd_file_path.split('/')[-1].split('.')[0]
+        ctd_prefix_file_name = ctd_file_path.split('/')[-1].split('.')[0] if platform in ["linux", "linux2"]
         name_file = "%s/%s_%s.csv" % (output_dir_path, prefix_file, ctd_prefix_file_name)
         print("Generating arquivo %s: " %name_file)
         f = open(name_file, 'w')
