@@ -16,8 +16,9 @@ use('Agg')
 separator = " "
 dt_html_mask = "%d/%m/%Y %H:%M:%S"
 dt_plot_mask = "%d/%m/%Y"
+num_regs_max = 1000
 
-regexp = r'\-?\d{1,5}\.{1}\d{2}|\-?\d{2,4}'
+regexp = r'\-?\d{1,5}\.{1}\d{2}|\-?\d{2,4}|NAN'
 # regexp = r'\d{1,3}\.{1}\d{2}|\d{2,4}'
 matcher = re.compile(regexp)
 
@@ -118,9 +119,8 @@ def convert_utc_date_to_sao_paulo(dt):
 	return saopaulodt
 
 def build_pressure_plot(data_array, file_path):
-	#print(data_array)
-	num_days  				=	 6
 	#obtem as leitur		as dos ultimos num_dias
+	data_array 				= data_array[:num_regs_max]
 	last_date 				= data_array[0].ctd_time
 	last_day  				= last_date.day
 	date_array 				= []
@@ -143,7 +143,16 @@ def build_pressure_plot(data_array, file_path):
 	# print('***** %s' % str(tide_array))
 	values_pressure = np.array(pressure_array, np.float32)
 	# values = tide_array
-	index = date_array
+	# index = date_array
+	# index = pd.Series(dates.date2num(date_array))
+	# index = core.index.datetimes.DatetimeIndex(date_array, dtype='datetime64[ns]', freq=None)
+	# index = map(pd.Timestamp, date_array)
+	# index = [pd.Timestamp(i) for i in date_array]
+	# index = pd.to_datetime(date_array)
+	index = [i.strftime(dt_html_mask) for i in date_array]
+
+	print(type(index))
+
 	
 	#check if all date are the same day
 	more_days = len(set(map(lambda i: i.date(), date_array))) > 1
@@ -154,17 +163,18 @@ def build_pressure_plot(data_array, file_path):
 	df = pd.DataFrame(values_pressure, index=index)
 	def dt_formatter(dt, pos):
 		print(dt)
-		# datep = datetime.fromordinal(int('%.0f' % dt))
-		datep = datetime.fromordinal(int(dt))
+		print(type(dt))
+		datep = datetime.fromordinal(int('%.0f' % dt))
+		# datep = datetime.fromordinal(float(dt))
 		print(str(datep))
-		return datep.strftime(dt_plot_mask if more_days else '%H:%M')
-	formatter = ticker.FuncFormatter(dt_formatter)
-	# formatter = ticker.FuncFormatter(lambda dt, pos: dt.strftime(dt_plot_mask))
+		return datep.strftime(dt_html_mask if more_days else '%H:%M')
+	# formatter = ticker.FuncFormatter(dt_formatter)
+	formatter = ticker.FuncFormatter(lambda dt, pos: dt.strftime(dt_html_mask))
 	# plt_obj = df.plot(lw=2,colormap='jet',marker='.',markersize=10,title='Altura de maré')
 	plt_obj = df.plot(title='Pressão Barométrica')
 	plt_obj.set_xlabel('Dia' if more_days else "Dia %s" % date_array[0].date().strftime(dt_plot_mask))
 	plt_obj.set_ylabel('Pressão (mmHg)')
-	# plt_obj.yaxis.set_major_formatter(formatter)
+	# plt_obj.xaxis.set_major_formatter(formatter)
 	
 
 
@@ -179,9 +189,10 @@ def build_pressure_plot(data_array, file_path):
 	fig.savefig(file_path)
 
 def build_depth_plot(data_array, file_path):	
+	data_array = data_array[:num_regs_max]
 	date_array = []
 	depth_adcp_array = []
-	depth_aanderra_array = []
+	depth_aanderra_array = []	
 	for ctd in data_array:
 		date_array.insert(0, ctd.ctd_time)
 		depth_adcp_array.insert(0, ctd.depth_adcp)
@@ -209,14 +220,14 @@ def build_depth_plot(data_array, file_path):
 	ax.legend(('ADCP', 'Aanderra'))
 
 	
-	# formatter = dates.DateFormatter(dt_plot_mask if more_days else '%H:%M')
-	# ax.xaxis.set_major_formatter(formatter)
+	formatter = dates.DateFormatter(dt_html_mask if more_days else '%H:%M')
+	ax.xaxis.set_major_formatter(formatter)
 
 	
-	ax.set_xlabel('Dia' if more_days else "Dia %s" % date_array[0].date().strftime(dt_plot_mask))
+	# ax.set_xlabel('Dia' if more_days else "Dia %s" % date_array[0].date().strftime(dt_html_mask))
 	# ax.set_ylabel('Profundidade (m)')
 	fig.autofmt_xdate()
-	ax.autoscale_view()
+	# ax.autoscale_view()
 	# ax.plot_dates(date_array, depth_adcp_array, 'ADCP')
 	# plt.show()
 
@@ -232,6 +243,8 @@ def build_depth_plot(data_array, file_path):
 def generate_html(inputfilepath, outputfilepath, outputplotfilepressure='/tmp/pressure.png', outputplotfiledepth='/tmp/depth.png'):
 	with open(inputfilepath) as ctd_file:
 		dat = []
+		
+
 		for line in ctd_file.readlines():
 			# line_array = line.split("\n")[0].split(separator)
 			line_array = matcher.findall(line)
@@ -246,19 +259,20 @@ def generate_html(inputfilepath, outputfilepath, outputplotfilepressure='/tmp/pr
 				minute 			= int(line_array[4])
 				voltage  		= float(line_array[5])
 				depth_adcp 		= float(line_array[6])
-				depth_aanderra 		= float(line_array[7])
+				depth_aanderra 	= float(line_array[7])
 				pressure 		= float(line_array[8])
 				temperature		= float(line_array[9])
 				ctd_time	 	= datetime(year, month, day, hour, minute)
 				
-				if depth_adcp < 0 or depth_adcp > 100 or math.isnan(depth_adcp):
-					depth_adcp = 0.0
-				if depth_aanderra < 0 or depth_aanderra > 100 or math.isnan(depth_aanderra):
-					depth_aanderra = 0.0	
-				if math.isnan(pressure):
-					presssure = 0.0
-				if math.isnan(temperature):
-					temerature = 0.0
+				if depth_adcp < 1 or depth_adcp > 100:
+					depth_adcp = float('NAN')
+				
+
+				if depth_aanderra < 1 or depth_aanderra > 100:
+					depth_aanderra = float('NAN')
+				else:
+					last_depth_aanderra_valid = depth_aanderra
+
 				data = CTD_DATA(ctd_time, depth_adcp, depth_aanderra, pressure, temperature, voltage)
 				dat.insert(0,data)
 
