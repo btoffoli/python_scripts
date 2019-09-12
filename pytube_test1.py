@@ -1,4 +1,4 @@
-from pytube import YouTube as YT
+from pytube import YouTube as YT # pytube==9.5.2
 from sys import argv
 from unidecode import unidecode
 
@@ -13,23 +13,17 @@ prefix_file_name = ('%s - ' % argv[3]) if len(argv) > 3 else ''
 count = 0
 with open(file_input_name) as filesrc:
 	for linelnk in filesrc.readlines():
+		filename = None
 		try:
-			count += 1              	      	
+			count += 1
 			yt = YT(linelnk)
-			#print(yt.get_videos())
-			#print(yt.filename)
-			#print(yt.get_videos())
-			filename = remove_non_ascii(yt.filename)
-			filename = filename if filename else 'DESCONHECIDO_%d.mp4' % count
-			print('Downloading %s....' % filename)
-			yt.set_filename('%s%s' %(prefix_file_name, filename))
-			video = yt.filter('mp4')[-1]
+			video = max(filter(lambda st: st.mime_type == 'video/mp4' and st.resolution and st.includes_audio_track, yt.streams.fmt_streams), key=lambda x: int(x.resolution.replace('p', ''))+ x.fps)
 			#video = yt.get('mp4', '720p')
 			if video:
+				print('Downloading %s....' % video.default_filename)
 				video.download(destination_path)
 			else:
 				print('Download mp4 format not found: Name: %s Link: %s' % (filename, linelnk))
 		except Exception as e:
 			print('Download fail: Name: %s Link: %s' % (filename, linelnk))
 			print(e)
-
